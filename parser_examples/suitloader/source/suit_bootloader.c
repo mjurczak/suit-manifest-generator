@@ -20,7 +20,7 @@
 #include "suit_bootloader.h"
 //#include "mbedtls/sha256.h" /* SHA-256 only */
 // #include "mbedtls/md.h"     /* generic interface */
-//#include "uecc/uECC.h"
+#include "uecc/uECC.h"
 //#include "mbed_application.h"
 #include "stubs.h"
 
@@ -176,7 +176,14 @@ int do_cose_auth(
  * used by uECC_verify for its internal r value computation result.
  * The rx variable in uECC_verify is a stack variable making the address of rx fairly easy
  * to predict, especially in constrained devices with simple memory model and no ASLR.
+ * Verification against COSE_Sign1_types seems to be the major difficulty for an attacker,
+ * as the stack space would have not yet allocated by the memory before uECC_verify rx
+ * would have to be pre-filled with a pattern fooling the validator.
+ * Given the fact that the type is 3-bit long it is also probable that the value would
+ * be as expected by luck if the unused stack space is not cleaned.
  * 
+ *
+ *
  * In the final uECC_verify step vli_equal(rx, r); would then compare the computed rx
  * value against itself and confirm authenticity of the message regardless of its content.
  */
@@ -238,7 +245,7 @@ int do_cose_auth(
  * if the values[3].ref.ptr was corrupted as described in VULNERABILITY 2. 
  * 
  * This issue allows in conjuction with VULNERABILITY 1 and VULNERABILITY 2 to bypass 
- * message authentication.
+ * message authentication and accept message with any hash value and no valid signature.
  */
     rc = uECC_verify(public_key, hash, values[3].ref.ptr);
     if (!rc) {
