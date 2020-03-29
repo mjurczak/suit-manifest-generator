@@ -371,6 +371,9 @@ int verify_suit_digest(
     const uint8_t *p = digest;
 
     // Unwrap if wrapped
+    /* *** MJ: NOTE ***
+     * What if it is not wrapped and the first byte happens to match the mask?
+     */
     if ((*p & CBOR_TYPE_MAX) == CBOR_TYPE_BSTR) {
         cbor_value_t digest_val;
         rc = cbor_extract_ref(&p, digest_end, &digest_val);
