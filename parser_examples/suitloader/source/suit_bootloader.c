@@ -128,11 +128,11 @@ int do_cose_auth(
     int rc = cbor_check_type_extract_ref(&p, p + 9, &auth_bstr, CBOR_TYPE_BSTR);
     if (rc) return rc;
     p = auth_bstr.ref.ptr;
-/* *** MJ: VULNERABILITY 1 ***
+/* *** MJ: ISSUE 1 ***
  * The authenticated COSE input buffer size is extracted from the input data without
  * validation against the auth_buffer actual size.
  * The byte string length can be set to a value that will cause auth_end point beyond
- * the actual input buffer end.
+ * the actual input buffer end and bypass later buffer limit checks.
  */
     const uint8_t *auth_end = p + auth_bstr.ref.length;
     // The auth container is a list.
@@ -165,27 +165,19 @@ int do_cose_auth(
         rc = cbor_check_type_extract_ref(&p, auth_end, &values[i], COSE_Sign1_types[i]);
         if (rc) return rc;
         if (COSE_Sign1_types[i] == CBOR_TYPE_BSTR) {
-/* *** MJ: VULNERABILITY 2 ***
+/* *** MJ: ISSUE 2 ***
  * Pointer to the next element is calculated from the input data without validation against 
  * poiter overflow or lower input buffer boundary. 
  * 
  * In combination with ISSUE 1 this issue makes it possible to set p to virtually 
  * any address in the memory space pointed by p.
  * 
- * An interesting exploit here is to set values[3].ref.ptr to the anticipated memory area
- * used by uECC_verify for its internal r value computation result.
- * The rx variable in uECC_verify is a stack variable making the address of rx fairly easy
- * to predict, especially in constrained devices with simple memory model and no ASLR.
- * Verification against COSE_Sign1_types seems to be the major difficulty for an attacker,
- * as the stack space would have not yet allocated by the memory before uECC_verify rx
- * would have to be pre-filled with a pattern fooling the validator.
- * Given the fact that the type is 3-bit long it is also probable that the value would
- * be as expected by luck if the unused stack space is not cleaned.
+ * Gicen certain preconditions it may be exploited to validate and parse a different message
+ * present in the addressable memory space.
  * 
- *
- *
- * In the final uECC_verify step vli_equal(rx, r); would then compare the computed rx
- * value against itself and confirm authenticity of the message regardless of its content.
+ * If a valid authenticated message signed by the trusted public key exists in the addressable
+ * memory space and an attacker can predict (or test multiple offsets) of the location of the valid
+ * message relative to the p pointer, then p can be set to point to the authentic payload and signature. 
  */
             p = values[i].ref.ptr + values[i].ref.length;
         } else {
@@ -226,6 +218,14 @@ int do_cose_auth(
     }
     mbedtls_sha256_context ctx;
     uint8_t hash[32];
+/* *** MJ: ISSUE 3 ***
+ * The values[0].ref.length and values[2].ref.length have not been validated before passing
+ * to sha computation as arguments.
+ * Passing a very large number can lead to device lock-up, denial of service, restart
+ * due to watchdog etc. 
+ * Large length values can also result in read access out of protected memory areas causing 
+ * invalid memory access faults.
+ */
     mbedtls_sha256_init (&ctx);
     mbedtls_sha256_starts_ret (&ctx, 0);
     mbedtls_sha256_update_ret(&ctx, bstr_start, 1 + byte_size);
@@ -236,7 +236,7 @@ int do_cose_auth(
     mbedtls_sha256_finish_ret(&ctx, hash);
     mbedtls_sha256_free(&ctx);
 
-/* *** MJ: VULNERABILITY 3 ***
+/* *** MJ: ISSUE 4 ***
  * The signature bytestrign is used for comparison without prior validation of the 
  * bytestring length. 
  * 
@@ -244,8 +244,8 @@ int do_cose_auth(
  * to access unintended memory area right after the input data or at a different location
  * if the values[3].ref.ptr was corrupted as described in VULNERABILITY 2. 
  * 
- * This issue allows in conjuction with VULNERABILITY 1 and VULNERABILITY 2 to bypass 
- * message authentication and accept message with any hash value and no valid signature.
+ * This issue allows in conjuction with ISSUE 1 and ISSUE 2 to pass value
+ * from the accessible addressable memory space as a signature for ECDSA verification.
  */
     rc = uECC_verify(public_key, hash, values[3].ref.ptr);
     if (!rc) {
@@ -255,7 +255,6 @@ int do_cose_auth(
     // Verify the manifest
 
     // Extract the signed digest of the manifest
-
     rc = verify_suit_digest(
         values[2].ref.ptr,
         values[2].ref.ptr + 1 + 8 + 2, //TODO: Fix length handling

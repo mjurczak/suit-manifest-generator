@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #define SUIT_BOOTLOADER_SLOT_A_OFFSET 0x8000
 #define SUIT_BOOTLOADER_SLOT_B_OFFSET 0x84000
@@ -36,7 +37,7 @@ void check_input_valid_mem_range(const char *caller, void *ptr)
 
 void mbedtls_sha256_init( mbedtls_sha256_context *ctx )
 {
-    (void)ctx;
+    ctx->state = 0;
 }
 
 int mbedtls_sha256_starts_ret( mbedtls_sha256_context *ctx, int is224 )
@@ -50,15 +51,25 @@ int mbedtls_sha256_update_ret( mbedtls_sha256_context *ctx,
                                const unsigned char *input,
                                size_t ilen )
 {
-    
+    /* Not the real thing, but lets do some computation to consume time. */
+    while(ilen--)
+    {
+        ctx->state ^= *input;
+        ctx->state = (ctx->state >> 7) ^ (ctx->state << 13);
+        input++;
+    }
     return 0;
 }
 
 int mbedtls_sha256_finish_ret( mbedtls_sha256_context *ctx,
                                unsigned char output[32] )
 {
-    (void)ctx;
-    (void)output;
+    memset(output, 0, 32);
+    output[0] = ctx->state & 0xFF;
+    output[1] = (ctx->state >> 8) & 0xFF;
+    output[2] = (ctx->state >> 16) & 0xFF;
+    output[3] = (ctx->state >> 24) & 0xFF;
+
     return 0;
 }
 

@@ -186,6 +186,11 @@ int cbor_skip(const uint8_t **p, const uint8_t *end)
             break;
         case CBOR_TYPE_TSTR:
         case CBOR_TYPE_BSTR:
+/* *** MJ: NOTE ***
+ * No lower bound check.
+ * The p pointer can be forced to point to an address lower than start of 
+ * the input data by overflowing the p.
+ */
             if ((*p) + val.ref.length <= end) {
                 (*p) += val.ref.length;
             } else {
@@ -275,6 +280,10 @@ int handle_pairs(
         PD_PRINTF("%s:%d\n    Invoking: %s\n", __FUNCTION__, __LINE__, handler.desc);
         val.cbor_start = *p;
         rc = cbor_extractors[handler.type](p, end, &val);
+/* *** MJ: NOTE ***
+ * Unconditional out-of-order element parsing.
+ * key number 3 can be processed BEFORE authentication wrapper is verified.
+ */
         if (rc == CBOR_ERR_NONE) {
             rc = handler.handler(p, end, ctx, &val, key64, cbor_type);
         }

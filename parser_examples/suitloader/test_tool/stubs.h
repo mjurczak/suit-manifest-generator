@@ -11,6 +11,7 @@
 
 typedef struct mbedtls_sha256_context
 {
+    uint64_t state;
 }
 mbedtls_sha256_context;
 
